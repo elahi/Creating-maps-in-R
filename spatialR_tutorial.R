@@ -109,7 +109,6 @@ plot(Latitude)
 summary(lnd)
 lnd
 
-
 ##### Challenge: coloring quadrants #####
 library(grid)
 library(png)
@@ -171,24 +170,28 @@ llgridlines(lnd, lty= 3, side ="EN", offset = -0.5)
 
 par(mfrow=c(1,1)) # return to default par
 
+##### Attribute data #####
+names(lnd)
+summary(lnd)
 
-########################################
-### Part 3: Creating and manipulating spatial data
-
+##### Part 3: Creating and manipulating spatial data #####
 # create a SpatialPoints object
 df <- data.frame(x = 1:3, y = c(1/2, 2/3, 3/4))
 mat <- as.matrix(df) # create matrix object with as.matrix
+mat
 sp1 <- SpatialPoints(coords = mat)
 
 class(sp1)
 
 spdf <- SpatialPointsDataFrame(sp1, data = df)
 class(spdf)
+spdf
 
-# Projections: setting and transforming CRS in R
+##### Projections: setting and transforming CRS in R #####
 # CRS = coordinate reference system
 
 # Setting a CRS
+proj4string(lnd)
 proj4string(lnd) <- NA_character_
 proj4string(lnd) <- CRS("+init=epsg:27700")
 
@@ -206,8 +209,92 @@ saveRDS(object = "lnd84", file = "data/lnd84.Rds")
 # Remove old object from environment
 rm(lnd84)
 
-### Attribute Joins
+##### Attribute Joins #####
+# starting over with london data
+lnd <- readOGR(dsn = "data", "london_sport")
+plot(lnd)
+nrow(lnd)
 
-########################################
+# We will join non-spatial crime data to the lnd object
+crime_data <- read.csv("data/mps-recordedcrime-borough.csv", 
+                       stringsAsFactors = FALSE)
+
+head(crime_data)
+head(crime_data$CrimeType)
+
+# Extract theft and handling
+crime_theft <- crime_data[crime_data$CrimeType == "Theft & Handling", ]
+head(crime_theft)
+
+# Calculate sum of the crime count for each district
+crime_ag <- aggregate(CrimeCount ~ Borough, FUN = sum, data = crime_theft)
+head(crime_ag)
+
+# Compare name columns
+lnd$name %in% crime_ag$Borough
+unique(lnd$name)
+unique(crime_ag$Borough)
+
+# Return rows which do not match
+lnd$name[!lnd$name %in% crime_ag$Borough]
+
+crime_ag$Borough[!crime_ag$Borough %in% lnd$name]
+
+# Quick test of %in% operator
+1:10 %in% c(9,8,7,6,1)
+
+# Challenge - identify the number of crimes taking place in borough 'NULL'
+crime_ag$Borough %in% lnd$name
+crime_ag$Borough[!crime_ag$Borough %in% lnd$name]
+
+library(dplyr)
+
+crime_ag %>% filter(Borough == "NULL") 
+
+# Joining datasets
+head(lnd$name)
+head(crime_ag$Borough)
+crime_ag <- rename(crime_ag, name = Borough)
+lnd@data <- left_join(lnd@data, crime_ag)
+
+lnd@data
+
+# Skip plotting with tmap, because it won't load
+# (need dev version of raster, which i don't want to install)
+library("tmap")
+
+##### Clipping and spatial joins #####
+stations <- readOGR(dsn = "data", layer = "lnd-stns")
+proj4string(stations)
+proj4string(lnd)
+bbox(stations)
+bbox(lnd)
+
+# Create reprojected stations object
+stations27700 <- spTransform(stations, CRSobj = CRS(proj4string(lnd)))
+stations <- stations27700
+rm(stations27700)
+plot(lnd)
+points(stations)
+
+# Many points outside of the map, need to 'clip' the points
+# Two functions available:
+# sp::over
+# rgeos::gIntersects
+
+# Use sp::over
+stations_backup <- stations
+
+# sp::over is simply the square brackets:
+stations <- stations_backup[lnd, ] # 'output all stations within lnd object bounds'
+plot(stations)
+
+# This is the long way:
+sel <- over(stations_backup, lnd)
+stations2 <- stations_backup[!is.na(sel[,1]), ]
+summary(sel)
+summary(stations2)
+
+##### Spatial aggregation #####
 
 
