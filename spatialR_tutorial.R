@@ -20,7 +20,7 @@ lnd@data[lnd$Partic_Per < 15, ]
 
 # Subset zones
 sel <- lnd$Partic_Per > 20 & lnd$Partic_per < 25
-lnd[, sel]
+lnd[, sel]@data
 plot(lnd[sel, ])
 head(sel)
 
@@ -207,7 +207,7 @@ lnd84 <- spTransform(lnd, CRS("+init=epsg:4326"))
 # Save new object
 saveRDS(object = "lnd84", file = "data/lnd84.Rds")
 # Remove old object from environment
-rm(lnd84)
+# rm(lnd84)
 
 ##### Attribute Joins #####
 # starting over with london data
@@ -296,5 +296,117 @@ summary(sel)
 summary(stations2)
 
 ##### Spatial aggregation #####
+stations_agg <- aggregate(x = stations["CODE"], by = lnd, FUN = length)
+stations_agg@data # gives the number of stations per borough
 
+lnd$n_points <- stations_agg$CODE
+lnd$n_points
+
+lnd_n <- aggregate(stations["NUMBER"], by = lnd, FUN = mean)
+lnd_n@data
+
+brks <- quantile(lnd_n$NUMBER)
+brks
+
+labs <- grey.colors(n = 4)
+labs
+
+q <- cut(lnd_n$NUMBER, brks, labels = labs, include.lowest = TRUE)
+q
+summary(q)
+
+qc <- as.character(q) # conver to character class to plot
+qc
+
+plot(lnd_n, col = qc)
+legend(legend = paste0("Q", 1:4), fill = levels(q), "topright")
+
+# new vector containing the area of each borough
+areas <- sapply(lnd_n@polygons, function(x) x@area)
+areas
+
+plot(lnd_n$NUMBER, areas)
+plot(1:10, pch = 1:10)
+
+levels(stations$LEGEND) # see A roads and rapid transit stations
+sel <- grepl("A Road Sing|Rapid", stations$LEGEND) # selection for plotting
+sel
+
+sym <- as.integer(stations$LEGEND[sel]) # symbols
+sym
+
+points(stations[sel, ], pch = sym)
+legend(legend = c("A Road", "RTS"), "bottomright", pch = unique(sym))
+
+##### Making maps with ggplot2 #####
+
+library(ggplot2)
+
+p <- ggplot(lnd@data, aes(Partic_Per, Pop_2001))
+p + geom_point(aes(color = Partic_Per, size = Pop_2001)) + 
+  geom_text(size = 2, aes(label = name))
+
+# ggmap requires spatial data to be supplied as a data.frame, using fortify()
+# fortify() extracts Spatial* objects as a dataframe
+# either maptools or rgeos need to be installed
+
+library(rgeos)
+lnd_f <- fortify(lnd)
+head(lnd_f)
+
+lnd$id <- row.names(lnd)
+head(lnd@data, n = 2)
+
+# Join attribute data to lnd_f by id
+lnd_f <- left_join(lnd_f, lnd@data)
+
+head(lnd_f)
+
+# now use ggplot to make the map
+map <- ggplot(lnd_f, aes(long, lat, group = group, fill = Partic_Per)) + 
+  geom_polygon() + 
+  coord_equal() + 
+  labs(x = "Easting (m)", y = "Northing (m)", 
+       fill = "% Sports\nParticipation") + 
+  ggtitle("London Sport Participation")
+map
+
+map + scale_fill_gradient(low = "white", high = "black")
+
+##### Making maps with leaflet #####
+library(leaflet)
+
+leaflet() %>%
+  addTiles() %>%
+  addPolygons(data = lnd84)
+
+# for a tutorial, see:
+# robinlovelace.net/r/2015/02/01/leaflet-r-package.html.
+
+##### Faceting for maps #####
+london_data <- read.csv("data/census-historic-population-borough.csv")
+library(tidyr)
+ltidy <- gather(london_data, date, pop, -Area.Code, -Area.Name)
+head(ltidy)
+
+# merge population data with london borough geometry
+head(lnd_f, 2)
+
+ltidy <- rename(ltidy, ons_label = Area.Code)
+lnd_f <- left_join(lnd_f, ltidy)
+
+# rename date variable
+lnd_f$date <- gsub(pattern = "Pop_", replacement = "", lnd_f$date)
+
+ggplot(data = lnd_f, # the input data
+       aes(x = long, y = lat, fill = pop/1000, group = group)) + # define variables
+  geom_polygon() + # plot the boroughs
+  geom_path(colour="black", lwd=0.05) + # borough borders
+  coord_equal() + # fixed x and y scales
+  facet_wrap(~ date) + # one plot per time slice
+  scale_fill_gradient2(low = "blue", mid = "grey", high = "red", # colors
+                       midpoint = 150, name = "Population\n(thousands)") + # legend options
+  theme(axis.text = element_blank(), # change the theme options
+        axis.title = element_blank(), # remove axis titles
+        axis.ticks = element_blank()) # remove axis ticks
 
